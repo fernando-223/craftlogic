@@ -21,7 +21,7 @@ services:
       sizeGB: 1
 
   - type: web
-    name: craftlogic-app
+    name: craftlogic
     runtime: docker
     plan: free
     region: oregon
