@@ -1,0 +1,5 @@
+CREATE DATABASE IF NOT EXISTS craftlogic CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE USER IF NOT EXISTS 'craftlogic'@'127.0.0.1' IDENTIFIED BY 'cambia-la-clave';
+ALTER USER 'craftlogic'@'127.0.0.1' IDENTIFIED BY 'cambia-la-clave';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON craftlogic.* TO 'craftlogic'@'127.0.0.1';
+FLUSH PRIVILEGES;
