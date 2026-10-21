@@ -25,8 +25,8 @@ Render aloja la aplicación web en el plan gratuito. `render.yaml` ya no crea un
 1. En Aiven, crea un servicio **MySQL Free** y una base de datos llamada `craftlogic`. Crea un usuario para la aplicación con acceso a esa base.
 2. Desde Aiven, guarda el host, puerto, usuario y contraseña de conexión y descarga el certificado CA del servicio. No compartas la contraseña ni subas el certificado a GitHub.
 3. En Render, abre el servicio web existente `craftlogic` y entra en **Environment**. Configura `DB_HOST`, `DB_PORT`, `DB_NAME` (`craftlogic`), `DB_USER`, `DB_PASSWORD` y `DB_SSL_CA`. En `DB_SSL_CA`, pega el contenido completo del certificado CA.
-4. Aplica `database/schema.sql` a la base `craftlogic` usando el cliente MySQL con la conexión SSL de Aiven. `database/native-setup.sql` es solo para una instalación local y no debe ejecutarse en Aiven.
-5. Guarda las variables y espera el redeploy. Comprueba `https://craftlogic.onrender.com/api/health`; debe indicar que la base está conectada.
+4. Guarda las variables y despliega el servicio. Al iniciar, CraftLogic aplica `database/schema.sql` de forma idempotente a la base `craftlogic`. `database/native-setup.sql` es solo para una instalación local y no debe ejecutarse en Aiven.
+5. Comprueba `https://craftlogic.onrender.com/api/health`; debe indicar que la base está conectada.
 
 No pulses **Deploy Blueprint** para crear MySQL en Render: el servicio privado y su disco tienen costo. Mantén las contraseñas en las variables de Render, nunca en el repositorio. Para crear cuentas de docentes, configura `TEACHER_INVITE_CODE` como secreto en el servicio web y compártelo en privado.
 

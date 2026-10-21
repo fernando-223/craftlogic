@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const path = require('node:path');
 const pool = require('./database');
 const { modules } = require('./content');
@@ -235,4 +236,18 @@ app.use('/api', (err, _req, res, _next) => {
 });
 
 app.get('*path', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
-app.listen(port, () => console.log(`CraftLogic disponible en http://localhost:${port}`));
+
+async function initializeDatabase() {
+  const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
+  const schema = fs.readFileSync(schemaPath, 'utf8')
+    .replace(/^\s*USE\s+`?craftlogic`?\s*;\s*/i, '');
+  const statements = schema.split(';').map(statement => statement.trim()).filter(Boolean);
+  for (const statement of statements) await pool.query(statement);
+}
+
+initializeDatabase()
+  .then(() => app.listen(port, () => console.log(`CraftLogic disponible en http://localhost:${port}`)))
+  .catch(err => {
+    console.error('CraftLogic no pudo preparar MySQL:', err.code || err.name || 'Error');
+    process.exit(1);
+  });

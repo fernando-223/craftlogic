@@ -8,6 +8,7 @@ RUN npm install --omit=dev --no-audit --no-fund
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
+COPY --chown=node:node database ./database
 USER node
 
 EXPOSE 3000
