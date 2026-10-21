@@ -81,8 +81,9 @@ Desde PowerShell, en la carpeta del proyecto, ejecuta el cliente MySQL con una c
 
 ```powershell
 $mysql = 'C:\Users\fperez\Downloads\mysql-enterprise-26.7.0_winx64_bundle\mysql-commercial-26.7.0-winx64\mysql-commercial-26.7.0-winx64\bin\mysql.exe'
-& $mysql -u root -p -e "source C:/Users/fperez/Documents/ChatGPT/Craftlogic/database/native-setup.sql"
-& $mysql -u root -p -e "source C:/Users/fperez/Documents/ChatGPT/Craftlogic/database/schema.sql"
+$project = (Get-Location).Path -replace '\\','/'
+& $mysql -u root -p -e "source $project/database/native-setup.sql"
+& $mysql -u root -p -e "source $project/database/schema.sql"
 ```
 
 Antes de ejecutar el paso anterior, cambia `cambia-la-clave` en `database/native-setup.sql` por una contraseña propia. Utiliza esa misma contraseña en `.env`. `schema.sql` contiene las tablas; `native-setup.sql` prepara la base y el usuario local.
