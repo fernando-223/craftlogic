@@ -16,26 +16,19 @@ CraftLogic es un prototipo funcional de software educativo en español para estu
 
 El modo colaborativo ofrece salas y registro compartido de actividad; no implementa sincronización en tiempo real del mundo del juego.
 
-## Publicar en internet con GitHub y Render
+## Publicar gratis con Render y Aiven
 
-El archivo `render.yaml` prepara dos servicios: la aplicación web gratuita y un MySQL privado con disco persistente. La base de datos no tendrá una dirección pública; Render conecta la aplicación usando su red privada. El servicio de MySQL necesita un plan de pago porque guarda datos en un disco persistente. La web gratuita puede tardar cerca de un minuto en despertar después de 15 minutos sin visitas. Revisa el plan y el costo que Render muestra antes de confirmar la creación.
+Render aloja la aplicación web en el plan gratuito. `render.yaml` ya no crea una base MySQL de pago: espera que la aplicación se conecte a un servidor MySQL externo. La opción elegida para este proyecto es el plan gratuito de [Aiven for MySQL](https://aiven.io/docs/products/mysql/concepts/mysql-free-tier), que ofrece 1 GB de almacenamiento y no requiere tarjeta. Aiven puede apagar servicios gratuitos que permanezcan inactivos; úsalo para el prototipo y revisa sus límites antes de guardar datos reales de estudiantes. La web gratuita de Render también puede tardar en despertar tras un periodo sin visitas.
 
-1. Crea un repositorio **privado** nuevo en GitHub. No subas `.env`, `.env.docker` ni contraseñas.
-2. Desde PowerShell, abre la carpeta del proyecto y conecta el repositorio. Reemplaza la dirección por la URL HTTPS que GitHub te muestre:
+### Crear y conectar MySQL
 
-   ```powershell
-   git add .
-   git commit -m "Preparar CraftLogic para publicación"
-   git branch -M main
-   git remote add origin https://github.com/TU-USUARIO/TU-REPOSITORIO.git
-   git push -u origin main
-   ```
+1. En Aiven, crea un servicio **MySQL Free** y una base de datos llamada `craftlogic`. Crea un usuario para la aplicación con acceso a esa base.
+2. Desde Aiven, guarda el host, puerto, usuario y contraseña de conexión y descarga el certificado CA del servicio. No compartas la contraseña ni subas el certificado a GitHub.
+3. En Render, abre el servicio web existente `craftlogic` y entra en **Environment**. Configura `DB_HOST`, `DB_PORT`, `DB_NAME` (`craftlogic`), `DB_USER`, `DB_PASSWORD` y `DB_SSL_CA`. En `DB_SSL_CA`, pega el contenido completo del certificado CA.
+4. Aplica `database/schema.sql` a la base `craftlogic` usando el cliente MySQL con la conexión SSL de Aiven. `database/native-setup.sql` es solo para una instalación local y no debe ejecutarse en Aiven.
+5. Guarda las variables y espera el redeploy. Comprueba `https://craftlogic.onrender.com/api/health`; debe indicar que la base está conectada.
 
-3. En Render, elige crear un **Blueprint** y conecta ese repositorio de GitHub. Render leerá `render.yaml`; revisa los servicios y el costo, y confirma la creación.
-4. Cuando ambos servicios aparezcan como disponibles, abre la dirección pública de `craftlogic-app`. Render genera HTTPS automáticamente.
-5. Para registrar un docente, copia el valor de `TEACHER_INVITE_CODE` desde las variables del servicio `craftlogic-app` y compártelo en privado. No lo publiques en GitHub ni en la web.
-
-El Blueprint genera automáticamente las contraseñas de la base de datos y la clave de sesión. No pongas secretos en `render.yaml`. El disco de MySQL conserva los datos durante reinicios y publicaciones; aun así, prepara respaldos de base de datos antes de usar información real. Render recomienda respaldos con `mysqldump` y no restaurar una base de datos desde una instantánea del disco.
+No pulses **Deploy Blueprint** para crear MySQL en Render: el servicio privado y su disco tienen costo. Mantén las contraseñas en las variables de Render, nunca en el repositorio. Para crear cuentas de docentes, configura `TEACHER_INVITE_CODE` como secreto en el servicio web y compártelo en privado.
 
 ## Encontré MySQL instalado
 

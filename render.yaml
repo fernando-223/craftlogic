@@ -1,25 +1,4 @@
 services:
-  - type: pserv
-    name: craftlogic-db
-    runtime: docker
-    plan: 0.5c-512mb
-    region: oregon
-    dockerfilePath: ./database/Dockerfile
-    dockerContext: .
-    envVars:
-      - key: MYSQL_DATABASE
-        value: craftlogic
-      - key: MYSQL_USER
-        value: craftlogic
-      - key: MYSQL_PASSWORD
-        generateValue: true
-      - key: MYSQL_ROOT_PASSWORD
-        generateValue: true
-    disk:
-      name: craftlogic-mysql-data
-      mountPath: /var/lib/mysql
-      sizeGB: 1
-
   - type: web
     name: craftlogic
     runtime: docker
@@ -36,20 +15,16 @@ services:
       - key: TEACHER_INVITE_CODE
         generateValue: true
       - key: DB_HOST
-        fromService:
-          type: pserv
-          name: craftlogic-db
-          property: host
+        sync: false
       - key: DB_PORT
-        value: 3306
+        sync: false
       - key: DB_NAME
-        value: craftlogic
+        sync: false
       - key: DB_USER
-        value: craftlogic
+        sync: false
       - key: DB_PASSWORD
-        fromService:
-          type: pserv
-          name: craftlogic-db
-          envVarKey: MYSQL_PASSWORD
+        sync: false
+      - key: DB_SSL_CA
+        sync: false
       - key: COOKIE_SECURE
         value: "true"

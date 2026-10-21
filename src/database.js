@@ -1,5 +1,7 @@
 const mysql = require('mysql2/promise');
 
+const sslCa = process.env.DB_SSL_CA;
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: Number(process.env.DB_PORT || 3306),
@@ -9,7 +11,8 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   charset: 'utf8mb4',
-  timezone: 'Z'
+  timezone: 'Z',
+  ...(sslCa ? { ssl: { ca: sslCa, rejectUnauthorized: true } } : {})
 });
 
 module.exports = pool;
