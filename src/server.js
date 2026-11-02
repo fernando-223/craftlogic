@@ -184,7 +184,7 @@ app.post('/api/assignments', requireUser, requireTeacher, async (req, res, next)
   } catch (err) { next(err); }
 });
 
-function makeRoomCode() { return crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6); }
+function makeRoomCode() { return crypto.randomBytes(6).toString('hex').toUpperCase(); }
 app.post('/api/rooms', requireUser, async (req, res, next) => {
   try {
     const moduleId = Number(req.body.moduleId);
@@ -193,6 +193,7 @@ app.post('/api/rooms', requireUser, async (req, res, next) => {
       const code = makeRoomCode();
       try {
         const [result] = await pool.execute('INSERT INTO rooms (code,module_id,created_by) VALUES (?,?,?)', [code, moduleId, req.user.id]);
+        await pool.execute('INSERT INTO room_members (room_id,user_id) VALUES (?,?)', [result.insertId, req.user.id]);
         await pool.execute('INSERT INTO room_events (room_id,user_id,message) VALUES (?,?,?)', [result.insertId, req.user.id, 'creó una sala de colaboración']);
         return res.status(201).json({ code });
       } catch (err) { if (err.code !== 'ER_DUP_ENTRY') throw err; }
@@ -203,17 +204,25 @@ app.post('/api/rooms', requireUser, async (req, res, next) => {
 app.post('/api/rooms/join', requireUser, async (req, res, next) => {
   try {
     const code = String(req.body.code || '').trim().toUpperCase();
+    if (!/^[A-F0-9]{6,12}$/.test(code)) return res.status(400).json({ error: 'Escribe un código de sala válido.' });
     const [rooms] = await pool.execute('SELECT id FROM rooms WHERE code=?', [code]);
     if (!rooms.length) return res.status(404).json({ error: 'No encontramos una sala con ese código.' });
-    await pool.execute('INSERT INTO room_events (room_id,user_id,message) VALUES (?,?,?)', [rooms[0].id, req.user.id, 'se unió a la sala']);
+    const [membership] = await pool.execute('INSERT IGNORE INTO room_members (room_id,user_id) VALUES (?,?)', [rooms[0].id, req.user.id]);
+    if (membership.affectedRows) {
+      await pool.execute('INSERT INTO room_events (room_id,user_id,message) VALUES (?,?,?)', [rooms[0].id, req.user.id, 'se unió a la sala']);
+    }
     res.json({ code });
   } catch (err) { next(err); }
 });
 app.get('/api/rooms/:code', requireUser, async (req, res, next) => {
   try {
-    const [rows] = await pool.execute('SELECT r.id,r.module_id,e.id AS event_id,e.message,e.created_at,u.name FROM rooms r LEFT JOIN room_events e ON e.room_id=r.id LEFT JOIN users u ON u.id=e.user_id WHERE r.code=? ORDER BY e.id DESC LIMIT 30', [String(req.params.code).toUpperCase()]);
-    if (!rows.length) return res.status(404).json({ error: 'No encontramos esa sala.' });
-    res.json({ moduleId: rows[0].module_id, events: rows.filter(row => row.event_id).reverse().map(row => ({ id: row.event_id, message: row.message, at: row.created_at, name: row.name })) });
+    const code = String(req.params.code).toUpperCase();
+    const [[room]] = await pool.execute('SELECT id,module_id FROM rooms WHERE code=? LIMIT 1', [code]);
+    if (!room) return res.status(404).json({ error: 'No encontramos esa sala.' });
+    const [members] = await pool.execute('SELECT 1 FROM room_members WHERE room_id=? AND user_id=? LIMIT 1', [room.id, req.user.id]);
+    if (!members.length) return res.status(403).json({ error: 'Únete a la sala para ver su actividad.' });
+    const [rows] = await pool.execute('SELECT e.id AS event_id,e.message,e.created_at,u.name FROM room_events e JOIN users u ON u.id=e.user_id WHERE e.room_id=? ORDER BY e.id DESC LIMIT 30', [room.id]);
+    res.json({ moduleId: room.module_id, events: rows.reverse().map(row => ({ id: row.event_id, message: row.message, at: row.created_at, name: row.name })) });
   } catch (err) { next(err); }
 });
 app.post('/api/rooms/:code/events', requireUser, async (req, res, next) => {
@@ -222,6 +231,8 @@ app.post('/api/rooms/:code/events', requireUser, async (req, res, next) => {
     if (!message) return res.status(400).json({ error: 'Escribe un mensaje corto.' });
     const [room] = await pool.execute('SELECT id FROM rooms WHERE code=?', [String(req.params.code).toUpperCase()]);
     if (!room.length) return res.status(404).json({ error: 'No encontramos esa sala.' });
+    const [members] = await pool.execute('SELECT 1 FROM room_members WHERE room_id=? AND user_id=? LIMIT 1', [room[0].id, req.user.id]);
+    if (!members.length) return res.status(403).json({ error: 'Únete a la sala para participar.' });
     await pool.execute('INSERT INTO room_events (room_id,user_id,message) VALUES (?,?,?)', [room[0].id, req.user.id, message]);
     res.status(201).json({ ok: true });
   } catch (err) { next(err); }
@@ -243,6 +254,9 @@ async function initializeDatabase() {
     .replace(/^\s*USE\s+`?craftlogic`?\s*;\s*/i, '');
   const statements = schema.split(';').map(statement => statement.trim()).filter(Boolean);
   for (const statement of statements) await pool.query(statement);
+  await pool.query('ALTER TABLE rooms MODIFY code CHAR(12) NOT NULL');
+  await pool.query('INSERT IGNORE INTO room_members (room_id,user_id) SELECT id,created_by FROM rooms');
+  await pool.query("INSERT IGNORE INTO room_members (room_id,user_id) SELECT room_id,user_id FROM room_events WHERE message='se unió a la sala'");
 }
 
 initializeDatabase()
