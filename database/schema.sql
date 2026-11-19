@@ -93,5 +93,5 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 INSERT INTO achievements (id,title,description,icon) VALUES
  (1,'Primer paso','Completa tu primer módulo','🌱'),
  (2,'Constructor lógico','Completa tres módulos','🧱'),
- (3,'Mente maestra','Completa los siete módulos','🏆')
+ (3,'Mente maestra','Completa los seis módulos','🏆')
 ON DUPLICATE KEY UPDATE title=VALUES(title), description=VALUES(description), icon=VALUES(icon);

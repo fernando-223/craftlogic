@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const pool = require('./database');
-const { modules } = require('./content');
+const { modules, start, step, directions } = require('../public/expeditions');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -59,9 +59,6 @@ async function passwordMatches(password, stored) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 function validModule(id) { return modules.find(module => module.id === Number(id)); }
-function matchesSolution(module, blocks) {
-  return Array.isArray(blocks) && blocks.length === module.solution.length && blocks.every((block, index) => block === module.solution[index]);
-}
 function cookieClear(res) {
   res.setHeader('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''}`);
 }
@@ -116,10 +113,10 @@ app.get('/api/me', requireUser, async (req, res, next) => {
   try {
     const [[user]] = await pool.execute('SELECT id,name,email,role FROM users WHERE id=?', [req.user.id]);
     if (!user) { cookieClear(res); return res.status(401).json({ error: 'La cuenta ya no existe.' }); }
-    const [progress] = await pool.execute('SELECT module_id,best_score,attempts,completed_at FROM progress WHERE user_id=?', [user.id]);
-    const [[metrics]] = await pool.execute('SELECT COUNT(*) AS attempts,COALESCE(SUM(success),0) AS wins FROM attempts WHERE user_id=?', [user.id]);
+    const [progress] = await pool.execute('SELECT module_id,best_score,attempts,completed_at FROM progress WHERE module_id<>6 AND user_id=?', [user.id]);
+    const [[metrics]] = await pool.execute('SELECT COUNT(*) AS attempts,COALESCE(SUM(success),0) AS wins FROM attempts WHERE module_id<>6 AND user_id=?', [user.id]);
     const [badges] = await pool.execute('SELECT a.title,a.description,a.icon,ua.earned_at FROM user_achievements ua JOIN achievements a ON a.id=ua.achievement_id WHERE ua.user_id=? ORDER BY ua.earned_at', [user.id]);
-    const [assignments] = await pool.execute('SELECT a.id,a.module_id,a.note,a.due_date,t.name AS teacher_name,p.completed_at FROM assignments a JOIN users t ON t.id=a.teacher_id LEFT JOIN progress p ON p.user_id=a.student_id AND p.module_id=a.module_id WHERE a.student_id=? ORDER BY a.created_at DESC', [user.id]);
+    const [assignments] = await pool.execute('SELECT a.id,a.module_id,a.note,a.due_date,t.name AS teacher_name,p.completed_at FROM assignments a JOIN users t ON t.id=a.teacher_id LEFT JOIN progress p ON p.user_id=a.student_id AND p.module_id=a.module_id WHERE a.module_id<>6 AND a.student_id=? ORDER BY a.created_at DESC', [user.id]);
     let totalStudents = 0;
     if (['teacher', 'admin'].includes(user.role)) {
       const [[row]] = await pool.execute('SELECT COUNT(DISTINCT student_id) AS total FROM assignments WHERE teacher_id=?', [user.id]);
@@ -140,21 +137,23 @@ app.post('/api/attempts', requireUser, async (req, res, next) => {
   try {
     const module = validModule(req.body.moduleId);
     if (!module) return res.status(400).json({ error: 'Módulo no válido.' });
-    const blocks = Array.isArray(req.body.blocks) ? req.body.blocks.slice(0, 24) : [];
-    const answers = Array.isArray(req.body.answers) ? req.body.answers.slice(0, 7).map(n => Number(n)) : [];
-    const success = module.id === 7
-      ? answers.length === module.quiz.length && module.quiz.every((question, index) => answers[index] === question.answer)
-      : matchesSolution(module, blocks);
-    const score = success ? (module.id === 7 ? 100 : Math.max(60, 100 - Math.max(0, blocks.length - module.solution.length) * 5)) : 0;
-    await pool.execute('INSERT INTO attempts (user_id,module_id,blocks,success,score) VALUES (?,?,?,?,?)', [req.user.id, module.id, JSON.stringify(module.id === 7 ? answers : blocks), success, score]);
+    const actions = req.body.actions;
+    if (!Array.isArray(actions) || actions.length > 2048 || !actions.every(a => typeof a === 'string' && Object.hasOwn(directions,a))) {
+      return res.status(400).json({error: 'Recarga la misión para enviar tu recorrido.'});
+    }
+    const game = start(module);
+    for (const action of actions) step(game, action);
+    const success = game.won;
+    const score = success ? Math.max(60, 100 - Math.max(0, game.moves - module.target)) : 0;
+    await pool.execute('INSERT INTO attempts (user_id,module_id,blocks,success,score) VALUES (?,?,?,?,?)', [req.user.id, module.id, JSON.stringify(actions), success, score]);
     await pool.execute(`INSERT INTO progress (user_id,module_id,best_score,attempts,completed_at) VALUES (?,?,?,1,?)
       ON DUPLICATE KEY UPDATE best_score=GREATEST(best_score,VALUES(best_score)),attempts=attempts+1,completed_at=IF(VALUES(completed_at) IS NULL,completed_at,COALESCE(completed_at,VALUES(completed_at)))`, [req.user.id, module.id, score, success ? new Date() : null]);
     if (success) {
-      const [[row]] = await pool.execute('SELECT COUNT(*) AS total FROM progress WHERE user_id=? AND completed_at IS NOT NULL', [req.user.id]);
-      const earned = row.total >= 7 ? 3 : row.total >= 3 ? 2 : 1;
+      const [[row]] = await pool.execute('SELECT COUNT(*) AS total FROM progress WHERE module_id<>6 AND user_id=? AND completed_at IS NOT NULL', [req.user.id]);
+      const earned = row.total >= 6 ? 3 : row.total >= 3 ? 2 : 1;
       await pool.execute('INSERT IGNORE INTO user_achievements (user_id,achievement_id) VALUES (?,?)', [req.user.id, earned]);
     }
-    res.json({ success, score, feedback: success ? ['¡Reto superado! Excelente lógica.','¡Lo lograste! La secuencia funciona.'][module.id === 2 ? 1 : 0] : module.id === 7 ? 'Revisa tus respuestas y vuelve a intentarlo.' : 'Todavía no funciona. Revisa el orden de los bloques y prueba de nuevo.' });
+    res.json({ success, score, feedback: success ? '¡Portal alcanzado!' : 'Completa los objetivos del mundo.' });
   } catch (err) { next(err); }
 });
 
@@ -162,7 +161,7 @@ app.get('/api/teacher/overview', requireUser, requireTeacher, async (req, res, n
   try {
     const [students] = await pool.execute(`SELECT DISTINCT u.id,u.name,u.email FROM assignments a JOIN users u ON u.id=a.student_id WHERE a.teacher_id=? ORDER BY u.name`, [req.user.id]);
     for (const student of students) {
-      const [progress] = await pool.execute('SELECT module_id,best_score,attempts,completed_at FROM progress WHERE user_id=? ORDER BY module_id', [student.id]);
+      const [progress] = await pool.execute('SELECT module_id,best_score,attempts,completed_at FROM progress WHERE module_id<>6 AND user_id=? ORDER BY module_id', [student.id]);
       student.progress = progress;
       student.completed = progress.filter(item => item.completed_at).length;
     }
