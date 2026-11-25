@@ -95,3 +95,11 @@ INSERT INTO achievements (id,title,description,icon) VALUES
  (2,'Constructor lógico','Completa tres módulos','🧱'),
  (3,'Mente maestra','Completa los seis módulos','🏆')
 ON DUPLICATE KEY UPDATE title=VALUES(title), description=VALUES(description), icon=VALUES(icon);
+
+CREATE TABLE IF NOT EXISTS teacher_pending (
+  email VARCHAR(190) PRIMARY KEY,
+  name VARCHAR(100), password_hash VARCHAR(255), ticket CHAR(48) UNIQUE, digest BINARY(32),
+  expires BIGINT NOT NULL DEFAULT 0, tries INT NOT NULL DEFAULT 0,
+  sends INT NOT NULL DEFAULT 0, sent_at BIGINT NOT NULL DEFAULT 0,
+  window_start BIGINT NOT NULL, INDEX idx_pending_window(window_start)
+) ENGINE=InnoDB;

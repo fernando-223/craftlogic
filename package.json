@@ -8,10 +8,14 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
-    "mysql2": "^3.14.1"
+    "mysql2": "^3.14.1",
+    "nodemailer": "^10.6.1",
+    "pdfkit": "^0.21.0"
   }
 }

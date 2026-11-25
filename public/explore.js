@@ -45,48 +45,54 @@ function drawValley(canvas,game,mission){
   }));
 }
 function renderLesson(){
-  const m=state.lesson,page=el('section','expedition'),head=el('div','lesson-top');
-  const game=Expeditions.start(m),actions=[];
-  head.append(button('← Mapa','',loadDashboard),el('span','tag','Expedición '+m.number+' / 6 · '+m.lesson));
-  const surface=el('div','playfield'),canvas=el('canvas');
-  canvas.width=900;canvas.height=420;canvas.tabIndex=0;
-  canvas.setAttribute('aria-label','Mundo de bloques. Usa las flechas o W A S D para caminar.');
-  surface.append(canvas);
-  const hud=el('p','inventory'),feedback=el('p','notice','Busca tu primera ruta.'),pad=el('div','direction-pad');
+  const m=state.lesson,[topic,task,...hints]=ValleyProgram.lessons[m.number-1];
+  const page=el('section','expedition'),layout=el('div','play-layout'),stage=el('div','playfield');
+  const canvas=el('canvas');canvas.width=900;canvas.height=420;
+  canvas.setAttribute('role','img');canvas.setAttribute('aria-label','Mapa de '+m.title);
+  const mapText=el('details'),legend=el('pre','',m.map.join('\n'));
+  mapText.append(el('summary','','Leer mapa por filas'),legend,el('p','','S: salida · P: portal · #: roca · M: madera · ~: agua · C: cristal · !: palanca · D: puerta · 1, 2, 3: balizas · punto: camino.'));
+  const panel=el('aside','panel field-guide'),label=el('label','field','Tu programa · una instrucción por línea');
+  const input=el('textarea');input.rows=8;input.maxLength=4096;input.spellcheck=false;
+  if(m.number===2)input.value='este\nsur'; // The second line hits a wall.
+  label.append(input);
+  const feedback=el('p','notice','Edita tu ruta y pulsa Ejecutar.'),inventory=el('p','inventory');
   feedback.setAttribute('role','status');
-  const restart=button('Reiniciar misión','',renderLesson);
-  let saving=false,saved=false;
-  async function save(){
-    if(saving||saved)return;
-    saving=true;restart.disabled=true;
-    try{
-      const r=await api('/attempts',{method:'POST',body:JSON.stringify({moduleId:m.id,actions})});
-      if(!r.success)throw Error(r.feedback);
-      saved=true;feedback.textContent='¡Expedición completada! '+r.score+' puntos guardados.';
-      pad.replaceChildren(button('Volver al mapa','primary',loadDashboard));
-    }catch(err){feedback.textContent=err.message;pad.replaceChildren(button('Volver a guardar','primary',save));}
-    finally{saving=false;restart.disabled=false;}
-  }
-  function refresh(){
+  function paint(game,line,msg){
     drawValley(canvas,game,m);
-    hud.textContent='Madera: '+game.wood+'   ·   Cristales pendientes: '+game.grid.flat().filter(t=>t==='C').length+'   ·   Pasos: '+game.moves;
+    inventory.textContent=(line?'Línea '+line+' · ':'')+'Fila '+(game.y+1)+', columna '+(game.x+1)+' · Madera '+game.wood+' · '+msg;
   }
-  function walk(dir){
-    if(game.won)return;
-    if(actions.length>=2048){feedback.textContent='Reinicia para probar otra ruta.';return;}
-    const before=game.moves;
-    feedback.textContent=Expeditions.step(game,dir);
-    if(game.moves!==before)actions.push(dir);
-    refresh();if(game.won)save();
+  paint(Expeditions.start(m),0,'Salida');
+  let hint=0;
+  const hintButton=button('Pedir pista','',()=>{feedback.textContent=hints[hint++];hintButton.disabled=hint===hints.length;});
+  const run=button('Ejecutar programa','primary',async()=>{
+    const source=input.value;
+    if(!source.trim()){feedback.textContent='Añade una instrucción para empezar.';return;}
+    run.disabled=true;input.readOnly=true;
+    try{
+      const frames=[];
+      ValleyProgram.run(m,source,(game,line,msg)=>frames.push([structuredClone(game),line,msg]));
+      const result=await api('/attempts',{method:'POST',body:JSON.stringify({moduleId:m.id,program:source})});
+      paint(Expeditions.start(m),0,'Salida');
+      for(const frame of frames){
+        if(!page.isConnected)return;
+        paint(...frame);
+        if(!matchMedia('(prefers-reduced-motion: reduce)').matches)await new Promise(resolve=>setTimeout(resolve,Math.min(200,5000/frames.length)));
+      }
+      feedback.textContent=result.feedback+(result.success?' '+result.score+' puntos guardados.':' Edita tu programa y vuelve a probar.');
+    }catch(error){feedback.textContent=error.message;}
+    finally{run.disabled=false;input.readOnly=false;}
+  });
+  const syntax=['norte · sur · este · oeste'];
+  if(m.number>=3)syntax.push('si abierta este');
+  if(m.number>=4)syntax.push('repetir 2 norte');
+  if(m.number>=5)syntax.push('si madera sur');
+  if(m.number===6)syntax.push('al cristal oeste');
+  const commands=el('div','palette');
+  for(const command of ['norte','sur','este','oeste',...syntax.slice(1)]){
+    commands.append(button(command,'',()=>{if(input.readOnly)return;input.value+=(input.value&&!input.value.endsWith('\n')?'\n':'')+command;input.focus();}));
   }
-  const keys={ArrowUp:'N',ArrowDown:'S',ArrowLeft:'W',ArrowRight:'E',w:'N',s:'S',a:'W',d:'E'};
-  page.onkeydown=e=>{if(keys[e.key]){e.preventDefault();walk(keys[e.key]);}};
-  for(const [dir,name] of [['N','↑ Norte'],['W','← Oeste'],['S','↓ Sur'],['E','→ Este']]){
-    const b=button(name,'',()=>walk(dir));b.dataset.dir=dir;pad.append(b);
-  }
-  const guide=el('aside','panel field-guide');
-  guide.append(el('h2','','Tu misión'),el('p','',m.goal),el('p','small','Meta opcional: llega en '+m.target+' pasos para ganar 100 puntos.'),el('p','small','Camina con las flechas, WASD o estos botones. Pisa los objetos para usarlos.'),pad,hud,feedback,restart);
-  const layout=el('div','play-layout');layout.append(surface,guide);
-  page.append(head,el('h1','',m.title),layout);app.replaceChildren(page);refresh();canvas.focus({preventScroll:true});
+  panel.append(el('h2','',topic),el('p','',m.goal),el('p','',task),el('p','small','Añade instrucciones con los botones o escribe y reordena las líneas. Puedes cambiar el rumbo y las repeticiones (2–9).'),commands,label,run,hintButton,feedback);
+  stage.append(canvas);const scene=el('div');scene.append(stage,inventory,mapText);
+  layout.append(scene,panel);page.append(button('← Mapa','',loadDashboard),el('h1','',m.title),layout);app.replaceChildren(page);const title=page.querySelector('h1');title.tabIndex=-1;title.focus();
 }
 

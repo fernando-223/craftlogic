@@ -4,7 +4,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const pool = require('./database');
-const { modules, start, step, directions } = require('../public/expeditions');
+const teacherEmail = require('./teacher-email');
+const { run } = require('../public/program');
+const { modules } = require('../public/expeditions');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -71,22 +73,14 @@ app.get('/api/health', async (_req, res) => {
 app.post('/api/auth/register', async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim().slice(0, 100);
-    const email = String(req.body.email || '').trim().toLowerCase().slice(0, 190);
+    const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
     const role = req.body.role === 'teacher' ? 'teacher' : 'student';
-    if (role === 'teacher') {
-      const configuredCode = process.env.TEACHER_INVITE_CODE || '';
-      const suppliedCode = String(req.body.inviteCode || '');
-      const expected = Buffer.from(configuredCode);
-      const supplied = Buffer.from(suppliedCode);
-      if (!configuredCode || expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
-        return res.status(403).json({ error: 'El código de invitación docente no es válido.' });
-      }
-    }
-    if (name.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8 || password.length > 128) {
+    if (name.length < 2 || email.length > 190 || !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email) || password.length < 8 || password.length > 128) {
       return res.status(400).json({ error: 'Escribe tu nombre, un correo válido y una contraseña de al menos 8 caracteres.' });
     }
     const hash = await passwordHash(password);
+    if (role === 'teacher') return res.status(202).json(await teacherEmail.sendCode(name,email,hash,sessionSecret));
     const [result] = await pool.execute('INSERT INTO users (name,email,password_hash,role) VALUES (?,?,?,?)', [name, email, hash, role]);
     const user = { id: result.insertId, name, email, role };
     setSession(res, user);
@@ -96,6 +90,16 @@ app.post('/api/auth/register', async (req, res, next) => {
     next(err);
   }
 });
+
+app.post('/api/auth/verify',async (req,res,next)=>{
+  try {
+    const user=await teacherEmail.verify(String(req.body.ticket||''),String(req.body.code||''),sessionSecret);
+    setSession(res,user);
+    res.status(201).json({user});
+  }catch(err){next(err);}
+});
+
+app.get('/api/certificate',requireUser,require('./certificate'));
 
 app.post('/api/auth/login', async (req, res, next) => {
   try {
@@ -137,23 +141,26 @@ app.post('/api/attempts', requireUser, async (req, res, next) => {
   try {
     const module = validModule(req.body.moduleId);
     if (!module) return res.status(400).json({ error: 'Módulo no válido.' });
-    const actions = req.body.actions;
-    if (!Array.isArray(actions) || actions.length > 2048 || !actions.every(a => typeof a === 'string' && Object.hasOwn(directions,a))) {
-      return res.status(400).json({error: 'Recarga la misión para enviar tu recorrido.'});
-    }
-    const game = start(module);
-    for (const action of actions) step(game, action);
-    const success = game.won;
+    const source=req.body.program;
+    if(typeof source!=='string' || source.length>4096 || source.split('\n').length>128) return res.status(400).json({error:'El programa supera los límites o necesita recargarse.'});
+    const {game,success,feedback}=run(module,source);
     const score = success ? Math.max(60, 100 - Math.max(0, game.moves - module.target)) : 0;
-    await pool.execute('INSERT INTO attempts (user_id,module_id,blocks,success,score) VALUES (?,?,?,?,?)', [req.user.id, module.id, JSON.stringify(actions), success, score]);
-    await pool.execute(`INSERT INTO progress (user_id,module_id,best_score,attempts,completed_at) VALUES (?,?,?,1,?)
-      ON DUPLICATE KEY UPDATE best_score=GREATEST(best_score,VALUES(best_score)),attempts=attempts+1,completed_at=IF(VALUES(completed_at) IS NULL,completed_at,COALESCE(completed_at,VALUES(completed_at)))`, [req.user.id, module.id, score, success ? new Date() : null]);
-    if (success) {
-      const [[row]] = await pool.execute('SELECT COUNT(*) AS total FROM progress WHERE module_id<>6 AND user_id=? AND completed_at IS NOT NULL', [req.user.id]);
-      const earned = row.total >= 6 ? 3 : row.total >= 3 ? 2 : 1;
-      await pool.execute('INSERT IGNORE INTO user_achievements (user_id,achievement_id) VALUES (?,?)', [req.user.id, earned]);
-    }
-    res.json({ success, score, feedback: success ? '¡Portal alcanzado!' : 'Completa los objetivos del mundo.' });
+    const db=await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[req.user.id]);
+      await db.execute('INSERT INTO attempts (user_id,module_id,blocks,success,score) VALUES (?,?,?,?,?)', [req.user.id, module.id, JSON.stringify({program:source}), success, score]);
+      await db.execute(`INSERT INTO progress (user_id,module_id,best_score,attempts,completed_at) VALUES (?,?,?,1,?)
+        ON DUPLICATE KEY UPDATE best_score=GREATEST(best_score,VALUES(best_score)),attempts=attempts+1,completed_at=IF(VALUES(completed_at) IS NULL,completed_at,COALESCE(completed_at,VALUES(completed_at)))`, [req.user.id, module.id, score, success ? new Date() : null]);
+      if (success) {
+        const [[row]] = await db.execute('SELECT COUNT(*) AS total FROM progress WHERE module_id<>6 AND user_id=? AND completed_at IS NOT NULL', [req.user.id]);
+        const earned = row.total >= 6 ? 3 : row.total >= 3 ? 2 : 1;
+        await db.execute('INSERT IGNORE INTO user_achievements (user_id,achievement_id) VALUES (?,?)', [req.user.id, earned]);
+      }
+
+      await db.commit();
+    }catch(err){await db.rollback();throw err;}finally{db.release();}
+    res.json({ success, score, feedback });
   } catch (err) { next(err); }
 });
 
@@ -238,6 +245,8 @@ app.post('/api/rooms/:code/events', requireUser, async (req, res, next) => {
 });
 
 app.use('/api', (err, _req, res, _next) => {
+  if(err.publicStatus)return res.status(err.publicStatus).json({error:err.message});
+  if(err.code==='ER_DUP_ENTRY')return res.status(409).json({error:'Ese correo ya tiene una cuenta.'});
   console.error('API error:', err.code || err.name || 'Error');
   if (err.code === 'ECONNREFUSED' || err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ER_BAD_DB_ERROR' || err.code === 'ER_ACCESS_DENIED_ERROR') {
     return res.status(503).json({ error: 'No hay conexión a MySQL. Sigue los pasos de instalación en README.md.' });
@@ -253,7 +262,8 @@ async function initializeDatabase() {
     .replace(/^\s*USE\s+`?craftlogic`?\s*;\s*/i, '');
   const statements = schema.split(';').map(statement => statement.trim()).filter(Boolean);
   for (const statement of statements) await pool.query(statement);
-  await pool.query('ALTER TABLE rooms MODIFY code CHAR(12) NOT NULL');
+  const [[column]]=await pool.query("SELECT CHARACTER_MAXIMUM_LENGTH AS width FROM information_schema.columns WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rooms' AND COLUMN_NAME='code'");
+  if(Number(column.width)<12)await pool.query('ALTER TABLE rooms MODIFY code CHAR(12) NOT NULL');
   await pool.query('INSERT IGNORE INTO room_members (room_id,user_id) SELECT id,created_by FROM rooms');
   await pool.query("INSERT IGNORE INTO room_members (room_id,user_id) SELECT room_id,user_id FROM room_events WHERE message='se unió a la sala'");
 }
