@@ -49,7 +49,7 @@ Configura SMTP_HOST (servidor), SMTP_PORT (puerto), SMTP_USER (usuario), SMTP_PA
 
 Cada ejecución se evalúa también en el servidor y se guarda como intento. El alumno puede editar las líneas y repetir el recorrido con ayuda de las pistas. Se mantienen los avances anteriores y los identificadores de las seis expediciones.
 
-Al completar las seis, el estudiante vuelve al Atlas y selecciona **Descargar certificado PDF**. Mientras queden misiones pendientes, el Atlas muestra sus nombres. El servidor consulta de nuevo las finalizaciones de su cuenta en MySQL. El PDF incluye su nombre y la fecha de la última misión completada, expresada en hora de Panamá.
+Al completar las seis, el estudiante vuelve al Atlas y selecciona **Descargar certificado PDF**. Mientras queden misiones pendientes, el Atlas muestra sus nombres. El servidor consulta de nuevo las finalizaciones de su cuenta en MySQL. El PDF usa la plantilla gráfica de CraftLogic, agrega el nombre del estudiante y la fecha de culminación calculada en hora de Panamá, y conserva nombres con acentos.
 
 ## Archivos principales
 
@@ -62,3 +62,6 @@ Al completar las seis, el estudiante vuelve al Atlas y selecciona **Descargar ce
 | `src/server.js` | Servidor, autenticación y API |
 | `src/database.js` | Conexión TLS a MySQL mediante variables de entorno |
 | `public/expeditions.js` | Mapas y reglas de juego compartidos por el navegador y el servidor |
+| `public/valle-media/certificate-template.png` | Plantilla gráfica del certificado PDF |
+| `public/valle-media/certificate-calendar.png` | Icono de calendario de la plantilla del certificado |
+| `src/certificate.js` | Validación de culminación y generación del PDF |
